@@ -42,7 +42,7 @@ def lambda_handler(event, context):
         checkLastDeployment()
         beginPipelineExecution()
     ##checkTimeDifference
-    
+    ##IncludeCheckForSpecificResourceName
     
     
     return {

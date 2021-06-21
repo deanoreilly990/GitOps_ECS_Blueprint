@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  PipelineName: 
+    Type: String
+  ServiceName:
+    Type: String
+Resources:
+    GitOpsControllerFunction:
+      Type: AWS::Lambda::Function
+      Properties:
+        Runtime: python3.6
+        Role: arn:aws:iam::237362482217:role/service-role/EventECSGitOps-role-cw6kgps4
+        Handler: index.lambda_handler
+        Description: 'GitOpsControllerFunction'
+        Environment:
+          Variables:
+            Pipeline: !Ref PipelineName
+            Service: !Ref ServiceName
+        Code:
+          ZipFile: |
+            import json
+            import boto3
+            import time
+            import os
+
+
+            gitOpsSource = 'codepipeline.amazonaws.com'
+            gitOpsPipeline = os.environ.get('Pipeline') #'ecs-test'
+            service = os.environ.get('Service')
+
+            def gitOpsCheck(source):
+                if source != gitOpsSource:
+                    return False
+                else:
+                    return True
+            def checkLastDeployment():
+                client = boto3.client('codepipeline')
+                response = client.list_pipeline_executions(
+                    pipelineName = gitOpsPipeline,
+                    maxResults=1)
+                print(response)
+                
+            def checkTimeDifference(X):
+                pass
+
+            def beginPipelineExecution():
+                client = boto3.client('codepipeline')
+                response = client.start_pipeline_execution(
+                    name=gitOpsPipeline
+                )
+                print(response)
+
+            def lambda_handler(event, context):
+                # TODO implement
+                print(event)
+                eventSource = event['detail']['sourceIPAddress']
+                eventName = event['detail']['eventName']
+                eventService = event['detail']['requestParameters']['service']
+                print("In Execution")
+                print("Event name;"+eventName)
+                print("Event name;"+eventService)
+                print("Event Source:"+eventSource)
+                validation = gitOpsCheck(eventSource)
+                if service == eventService:
+                  if validation == False:
+                      checkLastDeployment()
+                      beginPipelineExecution()
+                  ##checkTimeDifference
+                  ##IncludeCheckForSpecificResourceName
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps(event)
+                }
+    CloudWatchListenerRule:
+      Type: AWS::Events::Rule
+      Properties: 
+        Description: "GitOps Listener - rule to listen to the UpdateService API Call"
+        EventPattern: 
+          source:
+          - aws.ecs
+          detail-type:
+          - AWS API Call via CloudTrail
+          detail:
+            eventSource:
+            - ecs.amazonaws.com
+            eventName:
+              - UpdateService
+        Name: "GitOps-Listener"
+        RoleArn: arn:aws:iam::237362482217:role/CloudwatchEvents
+        State: ENABLED
+        Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "GitOpsControllerFunction"
+              - "Arn"
+          Id: "GitOpsControllerFunctionEvent"
+    PermissionForEventsToInvokeLambda: 
+      Type: AWS::Lambda::Permission
+      Properties: 
+        FunctionName: !Ref "GitOpsControllerFunction"
+        Action: "lambda:InvokeFunction"
+        Principal: "events.amazonaws.com"
+        SourceArn: 
+          Fn::GetAtt: 
+            - "CloudWatchListenerRule"
+            - "Arn"
